@@ -51,6 +51,11 @@ var _eval_inputs: Dictionary
 var _silent: bool = false
 var _was_already_paused: bool = false
 
+var _open_t: float = 0.0
+var _open_speed: float = 5.0
+var _is_sliding_in: bool = false
+var _is_done_sliding: bool = true
+
 
 func _init() -> void:
 	layer = 9999
@@ -63,6 +68,8 @@ func _init() -> void:
 	_init_theme()
 	_control.hide()
 	_control_block.hide()
+
+	_open_speed = _options.open_speed
 
 	if _options.persist_history:
 		_load_history()
@@ -95,7 +102,10 @@ func _input(p_event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif _control.visible and p_event is InputEventKey and p_event.is_pressed():
 		var handled := true
-		if p_event.keycode == KEY_UP:
+		if not _is_sliding_in and not _is_done_sliding:
+			pass # Don't accept input while closing console.
+			# _is_done_sliding is to ensure it doesn't stop input if you call show_console() directly.
+		elif p_event.keycode == KEY_UP:
 			_hist_idx += 1
 			_fill_entry_from_history()
 		elif p_event.keycode == KEY_DOWN:
@@ -115,7 +125,42 @@ func _input(p_event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 
+func _process(delta: float) -> void:
+	if _is_done_sliding: return
+
+	if _is_sliding_in:
+		_open_t = move_toward(_open_t, 1.0, _open_speed * delta)
+		if _open_t == 1:
+			_is_done_sliding = true
+	else: # We close faster than opening.
+		_open_t = move_toward(_open_t, 0.0, _open_speed * delta * 1.5)
+		if _open_t == 0:
+			_is_done_sliding = true
+
+	var eased := ease(_open_t, -1.75)
+	var new_y := remap(eased, 0, 1, -_control.size.y, 0)
+	_control.position.y = new_y
+
+	if _is_done_sliding and not _is_sliding_in:
+		_control.position.y = 0 # Reset in case of calling show_console() directly, so it isn't off screen.
+		hide_console()
+
+
 # *** PUBLIC INTERFACE
+
+
+func open_console() -> void:
+	if enabled:
+		_is_done_sliding = false
+		_is_sliding_in = true
+		show_console()
+
+
+func close_console() -> void:
+	if enabled:
+		_is_done_sliding = false
+		_is_sliding_in = false
+		# hide_console() is called in _process()
 
 
 func show_console() -> void:
@@ -146,10 +191,10 @@ func is_visible() -> bool:
 
 
 func toggle_console() -> void:
-	if _control.visible:
-		hide_console()
+	if _is_sliding_in:
+		close_console()
 	else:
-		show_console()
+		open_console()
 
 
 ## Clears all messages in the console.
